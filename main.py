@@ -75,7 +75,7 @@ def get_groq_response(messages, api_key):
         
         chat_completion = client.chat.completions.create(
             messages=full_history,
-            model="llama-3.3-70b-versatile", # Using Llama 3 70B for high quality reasoning
+            model="llama-3.3-70b-versatile",
             temperature=0.6,
             max_tokens=2048,
         )
@@ -88,7 +88,6 @@ def get_groq_response(messages, api_key):
 st.title("✈️ GroqJet Planner")
 st.subheader("AI-Powered Itineraries")
 
-# --- Phase 1: Trip Input Form ---
 if not st.session_state.trip_started:
     with st.container():
         st.info("Let's start by gathering some basic details for your trip.")
@@ -133,7 +132,6 @@ if not st.session_state.trip_started:
                 st.session_state.trip_started = True
                 
                 # 4. Get AI Response immediately
-                # Use st.status for a more engaging loading state during the heavy lifting
                 with st.status("🗺️ Planning your adventure...", expanded=True) as status:
                     st.write("Consulting travel maps...")
                     response = get_groq_response(st.session_state.messages, api_key)
@@ -144,7 +142,6 @@ if not st.session_state.trip_started:
                         st.session_state.messages.append({"role": "assistant", "content": response})
                         st.rerun()
 
-# --- Phase 2: Chat Interface ---
 else:
     # Display details summary
     ctx = st.session_state.trip_context
@@ -153,8 +150,6 @@ else:
 
     # Display Chat History
     for msg in st.session_state.messages:
-        # We skip the very first user message in the display if it feels too robotic, 
-        # but showing it confirms the parameters.
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
@@ -168,7 +163,6 @@ else:
         # 2. Generate Assistant Response
         if api_key:
             with st.chat_message("assistant"):
-                # Use a specific travel-themed spinner text
                 with st.spinner("✈️ GroqJet is flying through the data..."):
                     response = get_groq_response(st.session_state.messages, api_key)
                     if response:
