@@ -3,6 +3,7 @@ import datetime
 import os
 from dotenv import load_dotenv
 from groq import Groq
+from ddgs import DDGS
 
 # Load environment variables
 load_dotenv()
@@ -34,6 +35,7 @@ YOUR MANDATE:
 3.  **Clarification:** If the user provides ambiguous locations (e.g., "Paris" could be France or Texas) or unrealistic constraints, you must ask clarifying questions BEFORE generating an itinerary.
 4.  **Tone:** Professional, enthusiastic, and helpful.
 5.  **Format:** Use Markdown for itineraries. Use bolding for days (e.g., **Day 1**) and lists for activities.
+6.  **Real-Time Data:** If provided with [Real-Time Web Context], use that information to answer specific questions about events, weather, or news.
 """
 
 # --- Sidebar: Configuration ---
@@ -59,8 +61,31 @@ with st.sidebar:
         st.session_state.trip_context = {}
         st.rerun()
 
+# --- Helper Function: Web Search ---
+def search_web(query, max_results=3):
+    """
+    Searches DuckDuckGo and returns formatted results.
+    """
+    try:
+        # DDGS().text() returns an iterator, convert to list
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=max_results))
+            
+        if not results:
+            return None
+            
+        context_str = ""
+        for i, res in enumerate(results, 1):
+            context_str += f"Source {i}:\n- Title: {res['title']}\n- Snippet: {res['body']}\n- Link: {res['href']}\n\n"
+        return context_str
+        
+    except Exception as e:
+        # Fail silently or log error so app doesn't crash
+        print(f"Search Error: {e}")
+        return None
+
 # --- Helper Function: Call Groq API ---
-def get_groq_response(messages, api_key):
+def get_groq_response(messages, api_key, web_context=None):
     if not api_key:
         st.error("Please set your Groq API Key in the .env file.")
         return None
@@ -68,10 +93,21 @@ def get_groq_response(messages, api_key):
     client = Groq(api_key=api_key)
     
     try:
-        # We prepend the system prompt to the message history
-        full_history = [
-            {"role": "system", "content": SYSTEM_PROMPT}
-        ] + messages
+        # Prepare the conversation history
+        # We start with the system prompt
+        full_history = [{"role": "system", "content": SYSTEM_PROMPT}]
+        
+        # We copy the message history so we don't accidentally mutate the session state
+        # when adding the web context to the last message
+        messages_payload = [msg.copy() for msg in messages]
+        
+        # If we have web context, inject it into the LAST message (the user's latest prompt)
+        # This gives the model the data right when it needs it
+        if web_context and messages_payload:
+            last_msg = messages_payload[-1]
+            last_msg['content'] += f"\n\n[Real-Time Web Context - Use this to answer the user]:\n{web_context}"
+        
+        full_history.extend(messages_payload)
         
         chat_completion = client.chat.completions.create(
             messages=full_history,
@@ -133,6 +169,7 @@ if not st.session_state.trip_started:
                 
                 # 4. Get AI Response immediately
                 with st.status("🗺️ Planning your adventure...", expanded=True) as status:
+                    # Optional: We could also search here, but let's keep initial generation pure for speed
                     st.write("Consulting travel maps...")
                     response = get_groq_response(st.session_state.messages, api_key)
                     st.write("Finalizing itinerary...")
@@ -155,7 +192,7 @@ else:
 
     # Chat Input
     if prompt := st.chat_input("Ask for changes, restaurant tips, or weather info..."):
-        # 1. Append User Message
+        # 1. Append User Message to State (Clean version without RAG data)
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -163,8 +200,28 @@ else:
         # 2. Generate Assistant Response
         if api_key:
             with st.chat_message("assistant"):
-                with st.spinner("✈️ GroqJet is flying through the data..."):
-                    response = get_groq_response(st.session_state.messages, api_key)
-                    if response:
-                        st.markdown(response)
-                        st.session_state.messages.append({"role": "assistant", "content": response})
+                # We use a placeholder to show steps
+                with st.status("Thinking...", expanded=False) as status:
+                    
+                    # Step A: Search Web (RAG)
+                    st.write("🔎 Searching real-time info...")
+                    destination_context = st.session_state.trip_context.get('destination', '')
+                    
+                    # Construct a search query that includes the destination for better relevance
+                    search_query = f"{prompt} {destination_context}"
+                    web_data = search_web(search_query)
+                    
+                    if web_data:
+                        st.write("✅ Found relevant data!")
+                    else:
+                        st.write("❌ No web data found, using internal knowledge.")
+                    
+                    # Step B: Call LLM with the context
+                    st.write("🧠 Generating response...")
+                    response = get_groq_response(st.session_state.messages, api_key, web_context=web_data)
+                    
+                    status.update(label="Complete", state="complete", expanded=False)
+
+                if response:
+                    st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
