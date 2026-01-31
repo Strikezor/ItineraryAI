@@ -50,9 +50,8 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("### 📝 Instructions")
-    st.markdown("1. Ensure API Key is set in .env")
-    st.markdown("2. Fill in your trip details.")
-    st.markdown("3. Chat with the AI to refine your plan.")
+    st.markdown("1. Fill in your trip details.")
+    st.markdown("2. Chat with the AI to refine your plan.")
     
     if st.button("Reset Planner"):
         st.session_state.messages = []
